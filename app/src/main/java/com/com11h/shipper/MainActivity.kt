@@ -51,24 +51,24 @@ class MainActivity: AppCompatActivity() {
     private val PING_INTERVAL_MS = 8000L
 
     override fun onCreate(b: Bundle?) {
-        super.onCreate(b); setContentView(R.layout.activity_main)
+        super.onCreate(b); setContentView(com.com11h.shipper.R.layout.activity_main)
         session = SecureSession(this)
-        status = findViewById(R.id.status)
-        codBadge = findViewById(R.id.codBadge)
-        myBox = findViewById(R.id.myOrdersBox)
-        box = findViewById(R.id.ordersBox)
-        loginPanel = findViewById(R.id.loginPanel)
-        appPanel = findViewById(R.id.appPanel)
-        swipe = findViewById(R.id.swipeRefresh)
-        kcnSpinner = findViewById(R.id.kcnSpinner)
+        status = findViewById(com.com11h.shipper.R.id.status)
+        codBadge = findViewById(com.com11h.shipper.R.id.codBadge)
+        myBox = findViewById(com.com11h.shipper.R.id.myOrdersBox)
+        box = findViewById(com.com11h.shipper.R.id.ordersBox)
+        loginPanel = findViewById(com.com11h.shipper.R.id.loginPanel)
+        appPanel = findViewById(com.com11h.shipper.R.id.appPanel)
+        swipe = findViewById(com.com11h.shipper.R.id.swipeRefresh)
+        kcnSpinner = findViewById(com.com11h.shipper.R.id.kcnSpinner)
         loadKcnList()
         swipe.setOnRefreshListener { sync() }
-        findViewById<Button>(R.id.loginBtn).setOnClickListener { login() }
-        findViewById<Button>(R.id.logoutBtn).setOnClickListener { logout() }
-        findViewById<Button>(R.id.refreshBtn).setOnClickListener { sync() }
+        findViewById<Button>(com.com11h.shipper.R.id.loginBtn).setOnClickListener { login() }
+        findViewById<Button>(com.com11h.shipper.R.id.logoutBtn).setOnClickListener { logout() }
+        findViewById<Button>(com.com11h.shipper.R.id.refreshBtn).setOnClickListener { sync() }
         session.token()?.let { t ->
             kcn = session.kcnId() ?: 1
-            api = Api(BuildConfig.API_BASE_URL, kcn, t)
+            api = Api(com.com11h.shipper.BuildConfig.API_BASE_URL, kcn, t)
             showApp("Đã đăng nhập: ${session.name().orEmpty()}")
             sync()
             startFastPolling()
@@ -82,11 +82,11 @@ class MainActivity: AppCompatActivity() {
     private fun loadKcnList() {
         thread {
             try {
-                val list = Api.fetchKcnList(BuildConfig.API_BASE_URL)
+                val list = Api.fetchKcnList(com.com11h.shipper.BuildConfig.API_BASE_URL)
                 runOnUiThread {
                     kcnList = list
-                    val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, list)
-                    adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                    val adapter = ArrayAdapter(this, android.com.com11h.shipper.R.layout.simple_spinner_item, list)
+                    adapter.setDropDownViewResource(android.com.com11h.shipper.R.layout.simple_spinner_dropdown_item)
                     kcnSpinner.adapter = adapter
                     session.kcnId()?.let { savedId ->
                         val idx = list.indexOfFirst { it.id == savedId }
@@ -107,17 +107,17 @@ class MainActivity: AppCompatActivity() {
         loginPanel.visibility = LinearLayout.GONE
         appPanel.visibility = LinearLayout.VISIBLE
         status.text = text
-        findViewById<TextView>(R.id.kcnBadge).text = "KCN #$kcn"
+        findViewById<TextView>(com.com11h.shipper.R.id.kcnBadge).text = "KCN #$kcn"
     }
 
     private fun login() {
         val selected = kcnSpinner.selectedItem as? KcnItem
         kcn = selected?.id ?: 0
-        val u = findViewById<EditText>(R.id.username).text.toString().trim()
-        val p = findViewById<EditText>(R.id.password).text.toString()
+        val u = findViewById<EditText>(com.com11h.shipper.R.id.username).text.toString().trim()
+        val p = findViewById<EditText>(com.com11h.shipper.R.id.password).text.toString()
         if (kcn <= 0) { status.text = "Vui lòng chọn Khu công nghiệp"; return }
         if (u.isBlank() || p.isBlank()) { status.text = "Vui lòng nhập tài khoản và mật khẩu"; return }
-        api = Api(BuildConfig.API_BASE_URL, kcn)
+        api = Api(com.com11h.shipper.BuildConfig.API_BASE_URL, kcn)
         status.text = "Đang đăng nhập..."
         thread {
             try {

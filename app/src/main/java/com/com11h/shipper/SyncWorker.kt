@@ -14,7 +14,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters): CoroutineWorker
         val token = session.token() ?: return Result.success()
         val kcn = session.kcnId() ?: return Result.success()
         return try {
-            val api = Api(BuildConfig.API_BASE_URL, kcn, token)
+            val api = Api(com.com11h.shipper.BuildConfig.API_BASE_URL, kcn, token)
             val json = api.call("shipper_available_orders")
             val orders = json.optJSONObject("data")?.optJSONArray("orders")
             val count = orders?.length() ?: 0
