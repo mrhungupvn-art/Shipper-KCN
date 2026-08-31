@@ -29,6 +29,13 @@
 
     <TextView android:text="📦 Đơn sẵn sàng để nhận" android:textStyle="bold" android:textSize="18sp" android:paddingTop="16dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
     <LinearLayout android:id="@+id/ordersBox" android:orientation="vertical" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+
+    <TextView android:text="📊 Thống kê của tôi" android:textStyle="bold" android:textSize="18sp" android:paddingTop="16dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+    <TextView android:id="@+id/statsBox" android:text="Đang tải thống kê..." android:textSize="14sp" android:lineSpacingExtra="4dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+
+    <TextView android:text="🕘 Lịch sử giao hàng" android:textStyle="bold" android:textSize="18sp" android:paddingTop="16dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+    <LinearLayout android:id="@+id/historyBox" android:orientation="vertical" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+    <Button android:id="@+id/loadMoreHistoryBtn" android:text="Xem thêm" android:visibility="gone" android:layout_width="match_parent" android:layout_height="wrap_content"/>
 </LinearLayout>
 
 <TextView android:id="@+id/status" android:paddingTop="12dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
