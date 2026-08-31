@@ -3,6 +3,8 @@ package com.com11h.partner
 import android.app.AlertDialog
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
@@ -19,11 +21,49 @@ import kotlin.concurrent.thread
 
 class MainActivity:AppCompatActivity(){
  private lateinit var api:Api;private lateinit var session:SecureSession;private lateinit var loginPanel:LinearLayout;private lateinit var appPanel:LinearLayout;private lateinit var content:LinearLayout;private lateinit var status:TextView;private lateinit var loginStatus:TextView;private lateinit var storeBadge:TextView;private lateinit var swipe:SwipeRefreshLayout;private lateinit var spinner:Spinner;private var kcnList:List<KcnItem> = emptyList();private var kcn=0
+ // BUGFIX: app Partner trước đây KHÔNG có polling khi đang mở app (chỉ đồng
+ // bộ lúc mở app / kéo-để-làm-mới / mỗi 15 phút qua WorkManager) — khác app
+ // Shipper vốn có vòng lặp 8 giây (action "shipper_ping"). Thêm đúng cơ chế
+ // "ping nhẹ" giống Shipper, dùng action "partner_ping" (đã có sẵn ở
+ // api/index.php) — so sánh chữ ký trả về với lần trước, đổi mới gọi lại
+ // syncPending() (tải danh sách đầy đủ), tránh phải poll nặng liên tục.
+ private val pingHandler = Handler(Looper.getMainLooper())
+ private var pingRunnable: Runnable? = null
+ private var lastPingSignature: String? = null
+ private val PING_INTERVAL_MS = 8000L
  override fun onCreate(b:Bundle?){super.onCreate(b);setContentView(R.layout.activity_main);session=SecureSession(this);loginPanel=findViewById(R.id.loginPanel);appPanel=findViewById(R.id.appPanel);content=findViewById(R.id.contentBox);status=findViewById(R.id.status);loginStatus=findViewById(R.id.loginStatus);storeBadge=findViewById(R.id.storeBadge);swipe=findViewById(R.id.swipeRefresh);spinner=findViewById(R.id.kcnSpinner);loadKcnList();findViewById<Button>(R.id.loginBtn).setOnClickListener{login()};findViewById<Button>(R.id.logoutBtn).setOnClickListener{logout()};findViewById<Button>(R.id.refreshBtn).setOnClickListener{syncPending()};findViewById<Button>(R.id.newTab).setOnClickListener{loadPickups("partner_pending_pickups")};findViewById<Button>(R.id.prepTab).setOnClickListener{loadPickups("partner_pickups","preparing")};findViewById<Button>(R.id.historyTab).setOnClickListener{loadPickups("partner_pickups","ready,rejected")};findViewById<Button>(R.id.foodsTab).setOnClickListener{loadFoods()};findViewById<Button>(R.id.ledgerTab).setOnClickListener{loadLedger()};swipe.setOnRefreshListener{syncPending()};session.token()?.let{t->kcn=session.kcnId()?:0;if(kcn>0){api=Api(BuildConfig.API_BASE_URL,kcn,t);showApp();syncPending()}};if(android.os.Build.VERSION.SDK_INT>=33&&ContextCompat.checkSelfPermission(this,"android.permission.POST_NOTIFICATIONS")!=PackageManager.PERMISSION_GRANTED)ActivityCompat.requestPermissions(this,arrayOf("android.permission.POST_NOTIFICATIONS"),12);scheduleSync()}
+
+ // --- Fast polling khi app đang mở (foreground) — xem ghi chú BUGFIX ở trên. ---
+ override fun onResume(){super.onResume();startFastPolling()}
+ override fun onPause(){super.onPause();stopFastPolling()}
+ private fun startFastPolling(){
+  if(!::api.isInitialized) return
+  stopFastPolling()
+  val r=object:Runnable{override fun run(){pingOnce();pingHandler.postDelayed(this,PING_INTERVAL_MS)}}
+  pingRunnable=r
+  pingHandler.postDelayed(r,PING_INTERVAL_MS)
+ }
+ private fun stopFastPolling(){pingRunnable?.let{pingHandler.removeCallbacks(it)};pingRunnable=null}
+ private fun pingOnce(){
+  if(!::api.isInitialized) return
+  thread{
+   try{
+    val j=api.call("partner_ping")
+    val sig=(j.optJSONObject("data")?:j).toString()
+    val changed=lastPingSignature!=null && sig!=lastPingSignature
+    lastPingSignature=sig
+    if(changed) runOnUiThread{syncPending()}
+   }catch(_:UnauthorizedException){
+    runOnUiThread{logout()}
+   }catch(_:Exception){
+    // Lỗi mạng tạm thời khi ping: bỏ qua, vòng lặp PING_INTERVAL_MS sau sẽ thử lại.
+   }
+  }
+ }
  private fun loadKcnList(){thread{runCatching{Api.fetchKcnList(BuildConfig.API_BASE_URL)}.onSuccess{list->runOnUiThread{kcnList=list;spinner.adapter=ArrayAdapter(this,android.R.layout.simple_spinner_item,list).also{it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)}}}.onFailure{e->runOnUiThread{loginStatus.text="Không tải được KCN: ${e.message}"}}}}
- private fun showApp(){loginPanel.visibility=LinearLayout.GONE;appPanel.visibility=LinearLayout.VISIBLE;storeBadge.text="🏪 ${session.name().orEmpty()}  •  Store #${session.storeId()}  •  ${session.category()}";status.text="Sẵn sàng"}
+ private fun showApp(){loginPanel.visibility=LinearLayout.GONE;appPanel.visibility=LinearLayout.VISIBLE;storeBadge.text="🏪 ${session.name().orEmpty()}  •  Store #${session.storeId()}  •  ${session.category()}";status.text="Sẵn sàng";startFastPolling()}
  private fun login(){val sel=spinner.selectedItem as? KcnItem;kcn=sel?.id?:0;val u=findViewById<EditText>(R.id.username).text.toString().trim();val p=findViewById<EditText>(R.id.password).text.toString();if(kcn<=0||u.isBlank()||p.isBlank()){loginStatus.text="Vui lòng chọn KCN và nhập tài khoản/mật khẩu";return};api=Api(BuildConfig.API_BASE_URL,kcn);loginStatus.text="Đang đăng nhập...";thread{try{val d=api.call("partner_login",JSONObject().put("username",u).put("password",p).put("device","android")).getJSONObject("data");val t=d.getString("token");val x=d.getJSONObject("partner");session.save(t,kcn,x.optString("store_name",u),x.optInt("store_id"),x.optString("category",""));api.setToken(t);runOnUiThread{showApp();syncPending()}}catch(e:Exception){runOnUiThread{loginStatus.text=e.message?:"Đăng nhập thất bại"}}}}
- private fun logout(){if(::api.isInitialized)thread{runCatching{api.call("partner_logout",JSONObject())}};session.clear();content.removeAllViews();loginPanel.visibility=LinearLayout.VISIBLE;appPanel.visibility=LinearLayout.GONE;loginStatus.text="Đã đăng xuất"}
+ private fun logout(){stopFastPolling();if(::api.isInitialized)thread{runCatching{api.call("partner_logout",JSONObject())}};session.clear();content.removeAllViews();loginPanel.visibility=LinearLayout.VISIBLE;appPanel.visibility=LinearLayout.GONE;loginStatus.text="Đã đăng xuất"}
  private fun syncPending(){if(!::api.isInitialized)return;status.text="Đang đồng bộ...";thread{try{val j=api.call("partner_pending_pickups");val n=j.optJSONObject("data")?.optJSONArray("pickups")?.length()?:0;runOnUiThread{swipe.isRefreshing=false;status.text="Có $n đơn mới • ${SimpleDateFormat("HH:mm:ss").format(Date())}";renderPickups(j.optJSONObject("data")?.optJSONArray("pickups")?:JSONArray(),true)}}catch(e:UnauthorizedException){runOnUiThread{swipe.isRefreshing=false;logout()}}catch(e:Exception){runOnUiThread{swipe.isRefreshing=false;status.text=e.message?:"Không đồng bộ được"}}}}
  private fun loadPickups(action:String,filter:String="") {
   if(!::api.isInitialized)return
