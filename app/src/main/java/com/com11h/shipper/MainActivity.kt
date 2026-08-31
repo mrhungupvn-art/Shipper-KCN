@@ -39,8 +39,17 @@ class MainActivity: AppCompatActivity() {
     private lateinit var appPanel: LinearLayout
     private lateinit var swipe: SwipeRefreshLayout
     private lateinit var kcnSpinner: Spinner
+    private lateinit var statsBox: TextView
+    private lateinit var historyBox: LinearLayout
+    private lateinit var loadMoreHistoryBtn: Button
     private var kcnList: List<KcnItem> = emptyList()
     private var kcn = 1
+
+    // Lịch sử giao hàng: phân trang bằng offset, tải thêm 20 đơn mỗi lần bấm
+    // "Xem thêm" thay vì tải hết 1 lần (shipper lâu năm có thể có hàng ngàn đơn).
+    private val HISTORY_PAGE_SIZE = 20
+    private var historyOffset = 0
+    private var historyLoading = false
 
     // Fast polling: khi app đang mở (foreground), hỏi API mỗi ~8s bằng endpoint nhẹ "shipper_ping" thay vì
     // chờ WorkManager (tối thiểu 15 phút/lần, giới hạn cứng của Android). Nếu nội dung ping đổi khác lần trước
@@ -61,11 +70,15 @@ class MainActivity: AppCompatActivity() {
         appPanel = findViewById(R.id.appPanel)
         swipe = findViewById(R.id.swipeRefresh)
         kcnSpinner = findViewById(R.id.kcnSpinner)
+        statsBox = findViewById(R.id.statsBox)
+        historyBox = findViewById(R.id.historyBox)
+        loadMoreHistoryBtn = findViewById(R.id.loadMoreHistoryBtn)
         loadKcnList()
         swipe.setOnRefreshListener { sync() }
         findViewById<Button>(R.id.loginBtn).setOnClickListener { login() }
         findViewById<Button>(R.id.logoutBtn).setOnClickListener { logout() }
         findViewById<Button>(R.id.refreshBtn).setOnClickListener { sync() }
+        loadMoreHistoryBtn.setOnClickListener { loadHistory(reset = false) }
         session.token()?.let { t ->
             kcn = session.kcnId() ?: 1
             api = Api(BuildConfig.API_BASE_URL, kcn, t)
@@ -149,6 +162,10 @@ class MainActivity: AppCompatActivity() {
     private fun sync() {
         if (!::api.isInitialized) { swipe.isRefreshing = false; return }
         status.text = "Đang đồng bộ..."
+        // Thống kê + lịch sử tải RIÊNG, không chặn danh sách đơn chính ở trên —
+        // lỗi ở 2 mục này (vd mạng chập chờn) không nên làm hỏng luồng nhận/giao đơn.
+        loadStats()
+        loadHistory(reset = true)
         thread {
             try {
                 val mine = api.call("shipper_my_orders")
@@ -288,6 +305,82 @@ class MainActivity: AppCompatActivity() {
     }
 
     private fun toast(m: String?) { Toast.makeText(this, m ?: "Có lỗi", Toast.LENGTH_SHORT).show() }
+
+    /** Tải mục "📊 Thống kê của tôi": số đơn + thù lao hôm nay/tuần/tháng/tổng cộng. */
+    private fun loadStats() {
+        if (!::api.isInitialized) return
+        thread {
+            try {
+                val j = api.call("shipper_stats")
+                val d = j.optJSONObject("data") ?: JSONObject()
+                fun line(label: String, key: String): String {
+                    val b = d.optJSONObject(key) ?: return "$label: -"
+                    return "$label: ${b.optInt("count")} đơn • ${vnd(b.optInt("payout"))}"
+                }
+                val text = listOf(
+                    line("Hôm nay", "today"),
+                    line("Tuần này", "week"),
+                    line("Tháng này", "month"),
+                    line("Tổng cộng", "all_time")
+                ).joinToString("\n")
+                runOnUiThread { statsBox.text = text }
+            } catch (_: UnauthorizedException) {
+                runOnUiThread { logout() }
+            } catch (e: Exception) {
+                runOnUiThread { statsBox.text = "Không tải được thống kê: ${e.message ?: "lỗi không xác định"}" }
+            }
+        }
+    }
+
+    /**
+     * Tải mục "🕘 Lịch sử giao hàng". reset=true (gọi từ sync()) xoá danh sách
+     * cũ và tải lại từ đầu; reset=false (bấm nút "Xem thêm") nối thêm trang kế
+     * tiếp vào cuối danh sách đang hiện, dùng historyOffset đang có.
+     */
+    private fun loadHistory(reset: Boolean) {
+        if (!::api.isInitialized || historyLoading) return
+        if (reset) historyOffset = 0
+        historyLoading = true
+        val offset = historyOffset
+        thread {
+            try {
+                val j = api.call("shipper_history", query = "&limit=$HISTORY_PAGE_SIZE&offset=$offset")
+                val d = j.optJSONObject("data")
+                val arr = d?.optJSONArray("orders")
+                val hasMore = d?.optBoolean("has_more", false) ?: false
+                runOnUiThread {
+                    if (reset) historyBox.removeAllViews()
+                    if (arr == null || arr.length() == 0) {
+                        if (reset) historyBox.addView(hint("Chưa có đơn nào đã giao xong."))
+                    } else {
+                        for (i in 0 until arr.length()) addHistoryItem(arr.getJSONObject(i))
+                        historyOffset = offset + arr.length()
+                    }
+                    loadMoreHistoryBtn.visibility = if (hasMore) LinearLayout.VISIBLE else LinearLayout.GONE
+                    historyLoading = false
+                }
+            } catch (_: UnauthorizedException) {
+                runOnUiThread { historyLoading = false; logout() }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    historyLoading = false
+                    if (reset) historyBox.addView(hint("Không tải được lịch sử: ${e.message ?: "lỗi không xác định"}"))
+                    else toast(e.message)
+                }
+            }
+        }
+    }
+
+    private fun addHistoryItem(o: JSONObject) {
+        val c = card()
+        c.addView(TextView(this).apply { text = "Đơn ${o.optString("code", "-")}"; textSize = 16f; setTypeface(typeface, android.graphics.Typeface.BOLD) })
+        c.addView(TextView(this).apply { text = o.optString("address", "-"); textSize = 13f })
+        c.addView(TextView(this).apply { text = "Giao lúc: ${o.optString("delivered_at", "-")}"; textSize = 13f })
+        val codAmount = o.optInt("cod_amount")
+        val codText = if (codAmount > 0) "Đã thu COD: ${vnd(codAmount)}" else "Không thu COD (đã thanh toán online)"
+        c.addView(TextView(this).apply { text = "$codText  •  Công: ${vnd(o.optInt("payout_amount"))}"; textSize = 13f })
+        historyBox.addView(c)
+    }
 
     private fun scheduleSync() {
         val req = PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES)
