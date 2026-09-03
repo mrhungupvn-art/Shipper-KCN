@@ -417,6 +417,7 @@ class MainActivity: AppCompatActivity() {
     }
 
     private fun addHistoryItem(o: JSONObject) {
+        val orderId = o.optInt("order_id")
         val c = card()
         c.addView(TextView(this).apply { text = "Đơn ${o.optString("code", "-")}"; textSize = 16f; setTypeface(typeface, android.graphics.Typeface.BOLD) })
         c.addView(TextView(this).apply { text = o.optString("address", "-"); textSize = 13f })
@@ -424,6 +425,19 @@ class MainActivity: AppCompatActivity() {
         val codAmount = o.optInt("cod_amount")
         val codText = if (codAmount > 0) "Đã thu COD: ${vnd(codAmount)}" else "Không thu COD (đã thanh toán online)"
         c.addView(TextView(this).apply { text = "$codText  •  Công: ${vnd(o.optInt("payout_amount"))}"; textSize = 13f })
+        val del = Button(this).apply { text = "🗑️ Xoá khỏi lịch sử" }
+        c.addView(del)
+        del.setOnClickListener {
+            del.isEnabled = false
+            thread {
+                try {
+                    api.call("shipper_hide_history", JSONObject().put("order_id", orderId))
+                    runOnUiThread { toast("Đã xoá khỏi lịch sử"); loadHistory(reset = true) }
+                } catch (e: Exception) {
+                    runOnUiThread { toast(e.message); del.isEnabled = true }
+                }
+            }
+        }
         historyBox.addView(c)
     }
 
