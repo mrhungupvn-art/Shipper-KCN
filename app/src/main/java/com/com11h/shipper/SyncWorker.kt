@@ -17,10 +17,20 @@ class SyncWorker(appContext: Context, params: WorkerParameters): CoroutineWorker
             val api = Api(BuildConfig.API_BASE_URL, kcn, token)
             val json = api.call("shipper_available_orders")
             val orders = json.optJSONObject("data")?.optJSONArray("orders")
-            val count = orders?.length() ?: 0
-            val last = applicationContext.getSharedPreferences("sync", Context.MODE_PRIVATE).getInt("count", -1)
-            if (last >= 0 && count > last) notifyNewOrders(count - last)
-            applicationContext.getSharedPreferences("sync", Context.MODE_PRIVATE).edit().putInt("count", count).apply()
+            val ids = buildList {
+                if (orders != null) for (i in 0 until orders.length()) {
+                    add(orders.optJSONObject(i)?.optInt("order_id", 0)?.toString() ?: "0")
+                }
+            }.filter { it != "0" }.sorted().joinToString(",")
+            val prefs = applicationContext.getSharedPreferences("sync", Context.MODE_PRIVATE)
+            val previous = prefs.getString("available_ids", null)
+            if (previous != null && ids != previous) {
+                val old = previous.split(',').filter { it.isNotBlank() }.toSet()
+                val current = ids.split(',').filter { it.isNotBlank() }.toSet()
+                val added = current.count { it !in old }
+                if (added > 0) notifyNewOrders(added)
+            }
+            prefs.edit().putString("available_ids", ids).apply()
             Result.success()
         } catch (_: UnauthorizedException) { Result.success() }
         catch (_: Exception) { Result.retry() }
