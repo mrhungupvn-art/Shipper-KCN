@@ -217,6 +217,31 @@ class MainActivity: AppCompatActivity() {
     private fun infoLines(card: LinearLayout, o: JSONObject) {
         card.addView(TextView(this).apply { text = "Đơn ${o.optString("code", "-")}"; textSize = 20f; setTypeface(typeface, android.graphics.Typeface.BOLD) })
         card.addView(TextView(this).apply { text = o.optString("address", "-"); textSize = 15f })
+        val phone = o.optString("phone", "").trim()
+        val phoneAvailable = o.optBoolean("phone_available", phone.isNotBlank())
+        if (phoneAvailable && phone.isNotBlank()) {
+            val phoneRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 8, 0, 0)
+            }
+            phoneRow.addView(TextView(this).apply {
+                text = "📞 Khách: $phone"
+                textSize = 15f
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            phoneRow.addView(Button(this).apply {
+                text = "Gọi"
+                setOnClickListener {
+                    try {
+                        val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(phone)}"))
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        toast("Không thể mở cuộc gọi")
+                    }
+                }
+            })
+            card.addView(phoneRow)
+        }
         val codAmount = o.optInt("cod_amount")
         val codText = if (codAmount > 0) "COD: ${vnd(codAmount)}" else "Đã thanh toán online (không thu COD)"
         card.addView(TextView(this).apply { text = "$codText  •  Công: ${vnd(o.optInt("shipper_fee"))}"; textSize = 15f })
