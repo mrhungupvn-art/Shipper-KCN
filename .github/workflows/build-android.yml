@@ -51,12 +51,6 @@ jobs:
           fi
           test -s com11h-release.jks || { echo "ERROR: release keystore is empty"; exit 1; }
 
-      - name: DEBUG - list aliases in keystore (remove after fixing)
-        working-directory: android
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        run: keytool -list -keystore com11h-release.jks -storepass "$KEYSTORE_PASSWORD"
-
       - name: Build signed release AAB
         working-directory: android
         run: gradle --no-daemon clean bundleRelease
