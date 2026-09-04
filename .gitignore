@@ -1,0 +1,16 @@
+# Android/Gradle
+.gradle/
+**/build/
+local.properties
+
+# Release signing
+**/keystore.properties
+**/*.jks
+**/*.keystore
+
+# IDE
+.idea/
+*.iml
+
+# Local secrets/configs
+.env
