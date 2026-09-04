@@ -1,5 +1,6 @@
 package com.com11h.app
 
+import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
