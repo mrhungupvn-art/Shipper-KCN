@@ -36,7 +36,7 @@ jobs:
         run: |
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > com11h-release.jks
           cat > keystore.properties <<EOF
-          storeFile=com11h-release.jks
+          storeFile=../com11h-release.jks
           storePassword=$KEYSTORE_PASSWORD
           keyAlias=$KEY_ALIAS
           keyPassword=$KEY_PASSWORD
