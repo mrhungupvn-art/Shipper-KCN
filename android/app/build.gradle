@@ -12,11 +12,11 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace 'com.com11h.app'
+    namespace 'com.foodkcn.app'
     compileSdk 36
 
     defaultConfig {
-        applicationId 'com.com11h.app'
+        applicationId 'com.foodkcn.app'
         minSdk 23
         targetSdk 36
         versionCode 14
