@@ -1,0 +1,27 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application android:theme="@style/AppTheme" android:label="Food KCN" android:allowBackup="false" android:supportsRtl="true" android:usesCleartextTraffic="false" android:icon="@drawable/com11h_logo">
+        <activity
+            android:name=".HomeActivity"
+            android:screenOrientation="portrait"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".MenuActivity" android:screenOrientation="portrait" android:exported="false" />
+        <activity android:name=".WebActivity" android:screenOrientation="portrait" android:exported="false" />
+        <activity android:name=".BannerViewActivity" android:screenOrientation="portrait" android:exported="false" android:theme="@style/AppTheme" />
+        <activity android:name=".LegacyRouterActivity" android:screenOrientation="portrait" android:exported="false" />
+        <activity android:name=".MainActivity" android:screenOrientation="portrait" android:exported="false" />
+        <activity android:name=".AccountActivity" android:screenOrientation="portrait" android:exported="false" />
+        <activity android:name=".ImageGalleryActivity" android:screenOrientation="portrait" android:exported="false" />
+        <activity android:name=".LiveListActivity" android:screenOrientation="portrait" android:exported="false" />
+        <activity android:name=".LiveWatchActivity" android:screenOrientation="portrait" android:exported="false" />
+        <activity android:name=".SellerLiveActivity" android:screenOrientation="portrait" android:exported="false" />
+        <activity android:name=".SellerLoginActivity" android:screenOrientation="portrait" android:exported="false" />
+    </application>
+</manifest>
