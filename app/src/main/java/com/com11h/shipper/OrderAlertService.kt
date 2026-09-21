@@ -74,6 +74,13 @@ class OrderAlertService : Service() {
             if (!token.isNullOrBlank() && kcn > 0) {
                 try {
                     val api = Api(BuildConfig.API_BASE_URL, kcn, token)
+                    val ping = api.call("shipper_ping")
+                    val pingData = ping.optJSONObject("data") ?: org.json.JSONObject()
+                    val availableLimit = pingData.optInt("available_limit", 0)
+                    val eligibleNow = availableLimit >= 300000
+                    val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+                    val wasEligible = prefs.getBoolean("was_eligible", false)
+
                     val j = api.call("shipper_available_orders")
                     val arr = j.optJSONObject("data")?.optJSONArray("orders")
                         ?: org.json.JSONArray()
@@ -88,7 +95,6 @@ class OrderAlertService : Service() {
                         if (id > 0) currentIds.add(id.toString())
                     }
 
-                    val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
                     val hasBaseline = prefs.contains(LAST_AVAILABLE_IDS)
                     val previousIds = prefs.getString(LAST_AVAILABLE_IDS, "")
                         .orEmpty()
@@ -103,9 +109,11 @@ class OrderAlertService : Service() {
                         emptyList()
                     }
 
-                    if (newIds.isNotEmpty()) {
+                    val becameEligible = eligibleNow && !wasEligible
+                    if (eligibleNow && (newIds.isNotEmpty() || (becameEligible && currentIds.isNotEmpty()))) {
                         showNewOrderAlert(currentIds.size)
                     }
+                    prefs.edit().putBoolean("was_eligible", eligibleNow).apply()
 
                     // Lưu toàn bộ danh sách hiện tại làm mốc cho lần sau.
                     prefs.edit()
