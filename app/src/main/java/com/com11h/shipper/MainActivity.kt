@@ -1,6 +1,7 @@
 package com.com11h.shipper
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -34,6 +35,8 @@ class MainActivity: AppCompatActivity() {
     private lateinit var session: SecureSession
     private lateinit var status: TextView
     private lateinit var codBadge: TextView
+    private lateinit var walletBadge: TextView
+    private var walletAvailableLimit: Int = 0
     private lateinit var myBox: LinearLayout
     private lateinit var box: LinearLayout
     private lateinit var loginPanel: LinearLayout
@@ -69,6 +72,8 @@ class MainActivity: AppCompatActivity() {
         session = SecureSession(this)
         status = findViewById(R.id.status)
         codBadge = findViewById(R.id.codBadge)
+        walletBadge = findViewById(R.id.walletBadge)
+        findViewById<Button>(R.id.topupBtn).setOnClickListener { showTopupDialog() }
         myBox = findViewById(R.id.myOrdersBox)
         box = findViewById(R.id.ordersBox)
         loginPanel = findViewById(R.id.loginPanel)
@@ -160,6 +165,7 @@ class MainActivity: AppCompatActivity() {
         stopFastPolling()
         stopOrderAlertService()
         session.clear()
+        getSharedPreferences("shipper_order_alert", MODE_PRIVATE).edit().clear().apply()
         myBox.removeAllViews(); box.removeAllViews()
         lastPingSignature = null
         loginPanel.visibility = LinearLayout.VISIBLE
@@ -181,12 +187,15 @@ class MainActivity: AppCompatActivity() {
                 val mineData = mine.optJSONObject("data")
                 val mineArr = mineData?.optJSONArray("orders")
                 val codPending = mineData?.optInt("cod_pending_total", 0) ?: 0
+                val wallet = mineData?.optJSONObject("wallet") ?: JSONObject()
 
                 val avail = api.call("shipper_available_orders")
                 val availArr = avail.optJSONObject("data")?.optJSONArray("orders")
 
                 runOnUiThread {
                     swipe.isRefreshing = false
+                    walletAvailableLimit = wallet.optInt("available_limit")
+                    walletBadge.text = "🛡️ Gối đầu: ${vnd(wallet.optInt("deposit_balance"))}  •  Giữ COD: ${vnd(wallet.optInt("cod_held"))}  •  Còn nhận: ${vnd(walletAvailableLimit)}"
                     codBadge.text = "💰 Đang giữ COD: ${vnd(codPending)}"
                     myBox.removeAllViews()
                     if (mineArr == null || mineArr.length() == 0) {
@@ -253,6 +262,7 @@ class MainActivity: AppCompatActivity() {
         }
         val codAmount = o.optInt("cod_amount")
         val codText = if (codAmount > 0) "COD: ${vnd(codAmount)}" else "Đã thanh toán online (không thu COD)"
+        val paymentMethod = o.optString("payment_method", "online")
         card.addView(TextView(this).apply { text = "$codText  •  Công: ${vnd(o.optInt("shipper_fee"))}"; textSize = 15f })
         val note = o.optString("note", "")
         if (note.isNotBlank()) card.addView(TextView(this).apply { text = "Ghi chú: $note"; textSize = 13f })
@@ -271,7 +281,10 @@ class MainActivity: AppCompatActivity() {
         val orderId = o.optInt("order_id")
         val c = card()
         infoLines(c, o)
-        val claim = Button(this).apply { text = "✅ Nhận đơn này" }
+        val codAmountForClaim = o.optInt("cod_amount", 0)
+        val canClaim = codAmountForClaim <= walletAvailableLimit
+        val claim = Button(this).apply { text = if (canClaim) "✅ Nhận đơn này" else "🔒 Cần nâng hạn mức để nhận"; isEnabled = canClaim }
+        if (!canClaim) c.addView(TextView(this).apply { text = "⚠️ Đơn ${vnd(codAmountForClaim)} — cần nạp thêm ${vnd(codAmountForClaim-walletAvailableLimit)}"; textSize = 13f })
         c.addView(claim)
         claim.setOnClickListener {
             claim.isEnabled = false
@@ -295,6 +308,11 @@ class MainActivity: AppCompatActivity() {
         infoLines(c, o)
         c.addView(TextView(this).apply { text = "Trạng thái: ${o.optString("status", "-")}"; textSize = 14f })
 
+        if (o.optString("payment_method", "online") == "cod" && o.optInt("cod_amount", 0) > 0) {
+            val qrBtn=Button(this).apply{text="📱 Cho khách quét QR trả Admin"}; c.addView(qrBtn); qrBtn.setOnClickListener {
+                qrBtn.isEnabled=false; thread { try { val j=api.call("shipper_order_payment",query="&order_id=$orderId"); val p=j.optJSONObject("data")?.optJSONObject("payment")?:JSONObject(); runOnUiThread { val img=ImageView(this).apply{scaleType=ImageView.ScaleType.FIT_CENTER}; val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(20,10,20,10)}; box.addView(img,LinearLayout.LayoutParams(-1,520)); box.addView(TextView(this).apply{text="Số tiền: ${vnd(p.optInt("amount"))}\n${p.optString("bank_display_name")}\nNội dung: ${p.optString("transfer_content")}";textSize=14f}); AlertDialog.Builder(this).setTitle("Khách thanh toán QR").setView(box).setPositiveButton("Đóng",null).show(); ImageLoader.load(img,p.optString("qr_url")); qrBtn.isEnabled=true } } catch(e:Exception){runOnUiThread{qrBtn.isEnabled=true;toast(e.message)}} }
+            }
+        }
         if (!otpActive) {
             val start = Button(this).apply { text = "🛵 Bắt đầu giao" }
             c.addView(start)
@@ -336,6 +354,20 @@ class MainActivity: AppCompatActivity() {
         }
         navButton(c, o)
         myBox.addView(c)
+    }
+
+    private fun showTopupDialog() {
+        val input=EditText(this).apply { hint="Số tiền nạp, ví dụ 500000"; inputType=android.text.InputType.TYPE_CLASS_NUMBER }
+        AlertDialog.Builder(this).setTitle("Nạp tiền gối đầu")
+            .setMessage("Chuyển tiền vào tài khoản Admin. SePay sẽ tự động cộng vào hạn mức sau khi xác nhận.")
+            .setView(input).setPositiveButton("Hiện QR") { _, _ ->
+                val amount=input.text.toString().trim().toIntOrNull()?:0
+                if(amount<=0){toast("Vui lòng nhập số tiền");return@setPositiveButton}
+                thread { try {
+                    val j=api.call("shipper_wallet",query="&amount=$amount"); val t=j.optJSONObject("data")?.optJSONObject("topup")?:JSONObject()
+                    runOnUiThread { val img=ImageView(this).apply{scaleType=ImageView.ScaleType.FIT_CENTER}; val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(20,10,20,10)}; box.addView(img,LinearLayout.LayoutParams(-1,520)); box.addView(TextView(this).apply{text="${t.optString("bank_display_name")}\nTK: ${t.optString("bank_account_no")}\nChủ TK: ${t.optString("bank_account_name")}\nSố tiền: ${vnd(amount)}\nNội dung: ${t.optString("content")}";textSize=14f}); AlertDialog.Builder(this).setTitle("QR nạp gối đầu").setView(box).setPositiveButton("Đã chuyển",null).show(); ImageLoader.load(img,t.optString("qr_url")) }
+                } catch(e:Exception){runOnUiThread{toast(e.message)}} }
+            }.setNegativeButton("Huỷ",null).show()
     }
 
     private fun toast(m: String?) { Toast.makeText(this, m ?: "Có lỗi", Toast.LENGTH_SHORT).show() }
