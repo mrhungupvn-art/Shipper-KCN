@@ -187,7 +187,7 @@ class MainActivity: AppCompatActivity() {
                 val mineData = mine.optJSONObject("data")
                 val mineArr = mineData?.optJSONArray("orders")
                 val codPending = mineData?.optInt("cod_pending_total", 0) ?: 0
-                val wallet = mineData?.optJSONObject("wallet") ?: JSONObject()
+                val wallet = mineData?.optJSONObject("financial") ?: mineData?.optJSONObject("wallet") ?: JSONObject()
 
                 val avail = api.call("shipper_available_orders")
                 val availArr = avail.optJSONObject("data")?.optJSONArray("orders")
