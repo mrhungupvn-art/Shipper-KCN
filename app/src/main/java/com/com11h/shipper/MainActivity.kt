@@ -357,17 +357,131 @@ class MainActivity: AppCompatActivity() {
     }
 
     private fun showTopupDialog() {
-        val input=EditText(this).apply { hint="Số tiền nạp, ví dụ 500000"; inputType=android.text.InputType.TYPE_CLASS_NUMBER }
-        AlertDialog.Builder(this).setTitle("Nạp tiền gối đầu")
-            .setMessage("Chuyển tiền vào tài khoản Admin. SePay sẽ tự động cộng vào hạn mức sau khi xác nhận.")
-            .setView(input).setPositiveButton("Hiện QR") { _, _ ->
-                val amount=input.text.toString().trim().toIntOrNull()?:0
-                if(amount<=0){toast("Vui lòng nhập số tiền");return@setPositiveButton}
-                thread { try {
-                    val j=api.call("shipper_wallet",query="&amount=$amount"); val t=j.optJSONObject("data")?.optJSONObject("topup")?:JSONObject()
-                    runOnUiThread { val img=ImageView(this).apply{scaleType=ImageView.ScaleType.FIT_CENTER}; val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(20,10,20,10)}; box.addView(img,LinearLayout.LayoutParams(-1,520)); box.addView(TextView(this).apply{text="${t.optString("bank_display_name")}\nTK: ${t.optString("bank_account_no")}\nChủ TK: ${t.optString("bank_account_name")}\nSố tiền: ${vnd(amount)}\nNội dung: ${t.optString("content")}";textSize=14f}); AlertDialog.Builder(this).setTitle("QR nạp gối đầu").setView(box).setPositiveButton("Đã chuyển",null).show(); ImageLoader.load(img,t.optString("qr_url")) }
-                } catch(e:Exception){runOnUiThread{toast(e.message)}} }
-            }.setNegativeButton("Huỷ",null).show()
+        val input = EditText(this).apply {
+            hint = "Số tiền nạp, ví dụ 500000"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Nạp tiền gối đầu")
+            .setMessage(
+                "Nhập số tiền cần nạp. Sau khi chuyển khoản, bấm “Đã chuyển”. " +
+                    "Hệ thống sẽ tự kiểm tra giao dịch ngân hàng và tự cộng đúng số tiền thực nhận vào hạn mức."
+            )
+            .setView(input)
+            .setPositiveButton("Hiện QR") { _, _ ->
+                val amount = input.text.toString().trim().toIntOrNull() ?: 0
+                if (amount <= 0) {
+                    toast("Vui lòng nhập số tiền")
+                    return@setPositiveButton
+                }
+
+                thread {
+                    try {
+                        val j = api.call("shipper_wallet", query = "&amount=$amount")
+                        val t = j.optJSONObject("data")?.optJSONObject("topup") ?: JSONObject()
+
+                        runOnUiThread {
+                            val img = ImageView(this).apply {
+                                scaleType = ImageView.ScaleType.FIT_CENTER
+                            }
+                            val box = LinearLayout(this).apply {
+                                orientation = LinearLayout.VERTICAL
+                                setPadding(20, 10, 20, 10)
+                            }
+                            box.addView(img, LinearLayout.LayoutParams(-1, 520))
+                            box.addView(TextView(this).apply {
+                                text =
+                                    "${t.optString("bank_display_name")}\n" +
+                                    "TK: ${t.optString("bank_account_no")}\n" +
+                                    "Chủ TK: ${t.optString("bank_account_name")}\n" +
+                                    "Số tiền: ${vnd(amount)}\n" +
+                                    "Nội dung: ${t.optString("content")}"
+                                textSize = 14f
+                            })
+
+                            val dialog = AlertDialog.Builder(this)
+                                .setTitle("QR nạp gối đầu")
+                                .setView(box)
+                                .setPositiveButton("Đã chuyển", null)
+                                .setNegativeButton("Đóng", null)
+                                .create()
+
+                            dialog.setOnShowListener {
+                                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                                    val topupId = t.optInt("id", 0)
+                                    if (topupId <= 0) {
+                                        toast("Không xác định được lượt nạp. Vui lòng tạo lại QR.")
+                                        return@setOnClickListener
+                                    }
+                                    dialog.dismiss()
+                                    toast("Đã ghi nhận. Đang chờ ngân hàng xác nhận...")
+                                    watchTopupPayment(topupId, amount)
+                                }
+                            }
+
+                            dialog.show()
+                            ImageLoader.load(img, t.optString("qr_url"))
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread { toast(e.message) }
+                    }
+                }
+            }
+            .setNegativeButton("Huỷ", null)
+            .show()
+    }
+
+    /**
+     * Sau khi shipper bấm "Đã chuyển", app không tự cộng tiền chỉ vì nút được bấm.
+     * App hỏi server định kỳ; khi webhook ngân hàng đổi topup -> paid thì server
+     * đã cộng deposit_balance và app tự cập nhật hạn mức ngay.
+     */
+    private fun watchTopupPayment(topupId: Int, amount: Int) {
+        thread {
+            var paid = false
+            var lastStatus = "pending"
+
+            for (attempt in 0 until 60) { // tối đa khoảng 5 phút
+                try {
+                    val j = api.call("shipper_wallet_topup_status", query = "&topup_id=$topupId")
+                    val d = j.optJSONObject("data") ?: JSONObject()
+                    val topup = d.optJSONObject("topup") ?: JSONObject()
+                    val financial = d.optJSONObject("financial") ?: JSONObject()
+                    val status = topup.optString("status", "pending")
+                    lastStatus = status
+
+                    if (status == "paid") {
+                        val newDeposit = financial.optInt("deposit_balance", 0)
+                        val available = financial.optInt("available_limit", 0)
+                        paid = true
+
+                        runOnUiThread {
+                            walletAvailableLimit = available
+                            walletBadge.text =
+                                "🛡️ Gối đầu: ${vnd(newDeposit)}  •  Giữ COD: ${vnd(financial.optInt("cod_held", 0))}  •  Còn nhận: ${vnd(available)}"
+                            toast("✅ Đã nhận ${vnd(amount)}. Hạn mức gối đầu đã tự động tăng.")
+                            sync()
+                        }
+                        break
+                    }
+                } catch (e: UnauthorizedException) {
+                    runOnUiThread { logout() }
+                    break
+                } catch (_: Exception) {
+                    // Mạng chập chờn: thử lại ở vòng kế tiếp.
+                }
+
+                Thread.sleep(5000)
+            }
+
+            if (!paid && lastStatus != "paid") {
+                runOnUiThread {
+                    toast("Chưa thấy ngân hàng xác nhận. Hệ thống vẫn giữ lượt nạp; hãy đồng bộ lại sau.")
+                    sync()
+                }
+            }
+        }
     }
 
     private fun toast(m: String?) { Toast.makeText(this, m ?: "Có lỗi", Toast.LENGTH_SHORT).show() }
